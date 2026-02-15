@@ -1,7 +1,6 @@
 # Escrow Contract (Ink!) Documentation
 
-This document describes the **Escrow smart contract** implemented in Ink! for Substrate-based blockchains.  
-It explains the available methods, events, and usage workflows.
+This repository contains an Escrow smart contract written in Ink! for Substrate-based blockchains.  The contract allows for secure, managed escrow of assets, including account creation, fund release, and lifecycle management.
 
 ---
 
