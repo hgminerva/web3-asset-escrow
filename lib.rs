@@ -1,25 +1,18 @@
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
+/// pallet_assets runtime calls
+pub mod assets;
+
+/// Errors
+pub mod errors;
+
 #[ink::contract]
 mod escrow {
 
     use ink::prelude::vec::Vec;
 
-    /// Error Messages
-    #[derive(scale::Encode, scale::Decode, Debug, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
-    pub enum Error {
-        /// Bad origin error, e.g., wrong caller
-        BadOrigin,
-        /// Escrow is close
-        EscrowIsClose,
-        /// Escrow account not found
-        EscrowAccountNotFound,
-        /// One escrow per account only
-        EscrowAccountDuplicate,
-        /// Maximum escrow account has been reached
-        EscrowAccountMax,
-    }    
+    use crate::errors::{Error, RuntimeError, ContractError};
+    use crate::assets::{AssetsCall, RuntimeCall};
 
     /// Success Messages
     #[derive(scale::Encode, scale::Decode, Debug, Clone, PartialEq, Eq)]
@@ -236,7 +229,6 @@ mod escrow {
             }
 
             // Check if there is a duplicate escrow account
-            let mut account_found = false;
             for a in self.accounts.iter_mut() {
                 if a.account == account {
                     self.env().emit_event(EscrowEvent {
@@ -248,26 +240,23 @@ mod escrow {
             }
 
             // Add the escrow account
-            if !account_found {
-                
-                if self.accounts.len() as u16 >= self.maximum_accounts {
-                    self.env().emit_event(EscrowEvent {
-                        operator: caller,
-                        status: EscrowStatus::EmitError(Error::EscrowAccountMax),
-                    });
-                    return Ok(());
-                }
-
-                let new_account = Account {
-                    reference,
-                    account,
-                    balance: amount,
-                    recipient,
-                    status: 1, // 1 = Liquid
-                };
-                self.accounts.push(new_account);
-
+            if self.accounts.len() as u16 >= self.maximum_accounts {
+                self.env().emit_event(EscrowEvent {
+                    operator: caller,
+                    status: EscrowStatus::EmitError(Error::EscrowAccountMax),
+                });
+                return Ok(());
             }
+
+            let new_account = Account {
+                reference,
+                account,
+                balance: amount,
+                recipient,
+                status: 1, // 1 = Liquid
+            };
+            
+            self.accounts.push(new_account);
 
             self.env().emit_event(EscrowEvent {
                 operator: caller,
@@ -279,7 +268,7 @@ mod escrow {
 
         /// Released the escrow account balance to the recipient
         #[ink(message)]
-        pub fn release(&mut self) -> Result<(), Error> {
+        pub fn release(&mut self) -> Result<(), ContractError> {
 
             // Release an escrow account by the caller
             let caller = self.env().caller();
@@ -298,9 +287,17 @@ mod escrow {
 
                 if self.accounts[i].account == caller {
                     // Transfer funds - Todo
+                    self.env()
+                        .call_runtime(&RuntimeCall::Assets(AssetsCall::Transfer {
+                            id: self.asset_id,
+                            target: self.accounts[i].recipient.into(),
+                            amount: self.accounts[i].balance,
+                        }))
+                        .map_err(|_| RuntimeError::CallRuntimeFailed)?;                    
 
                     // Remove escrow account (gas efficient)
                     self.accounts.swap_remove(i);
+
 
                     self.env().emit_event(EscrowEvent {
                         operator: caller,
@@ -323,8 +320,7 @@ mod escrow {
         #[ink(message)]
         pub fn force_release(&mut self,
             account: AccountId,
-            amount: u128,
-            recipient: AccountId) -> Result<(), Error> {
+            recipient: AccountId) -> Result<(), ContractError> {
 
             // Override the release of the escrow account can only be done by 
             // the manager.
@@ -350,7 +346,14 @@ mod escrow {
             for i in 0..self.accounts.len() {
 
                 if self.accounts[i].account == account {
-                    // Transfer funds - Todo
+                    // Transfer funds - Todo (Recipient must be manually provided)
+                    self.env()
+                        .call_runtime(&RuntimeCall::Assets(AssetsCall::Transfer {
+                            id: self.asset_id,
+                            target: recipient.into(),
+                            amount: self.accounts[i].balance,
+                        }))
+                        .map_err(|_| RuntimeError::CallRuntimeFailed)?;  
 
                     // Remove escrow account (gas efficient)
                     self.accounts.swap_remove(i);
